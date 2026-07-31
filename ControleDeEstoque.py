@@ -1,5 +1,15 @@
-estoque = []
-proximo_id = 1
+import json
+
+def carregar_estoque():
+    try:
+        with open("estoque.json", "r") as arquivo:
+            return json.load(arquivo)
+    except FileNotFoundError:
+        return []
+
+estoque = carregar_estoque()
+
+proximo_id = maior_id = max([produto["id"]for produto in estoque], default=0) + 1
 
 def cadastrar_produto(nome, quantidade):
     global proximo_id
@@ -64,6 +74,10 @@ def conversor_de_numero(mensagem):
         except ValueError:
             print("Entrada inválida. Por favor, digite números inteiros.")
 
+def salvar_estoque():
+    with open("estoque.json", "w") as arquivo:
+        json.dump(estoque, arquivo, indent=4)
+
 while True:
 
     print("Controle de Estoque")
@@ -82,21 +96,27 @@ while True:
         nome = input("Digite o nome do produto: ")
         quantidade = conversor_de_numero("Digite a quantidade do produto: ")
         cadastrar_produto(nome, quantidade)
+        salvar_estoque()
     elif escolha == "2":
         id_produto = conversor_de_numero("Digite o ID do produto: ")
         quantidade = conversor_de_numero("Digite a quantidade a ser baixada: ")
         dar_baixa_estoque(id_produto, quantidade)
+        salvar_estoque()
     elif escolha == "3":
         id_produto = conversor_de_numero("Digite o ID do produto: ")
         quantidade = conversor_de_numero("Digite a quantidade a ser adicionada: ")
         adicionar_estoque(id_produto, quantidade)
+        salvar_estoque()
     elif escolha == "4":
         id_produto = conversor_de_numero("Digite o ID do produto: ")
         excluir_produto(id_produto)
+        salvar_estoque()
     elif escolha == "5":
         listar_produtos()
+        salvar_estoque()
     elif escolha == "6":
         print("Saindo do programa...")
+        salvar_estoque()
         break 
     else:  
         print("Comando errado! Escolha novamente o comando desejado.")
