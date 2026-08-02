@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Estoque & Dashboard</title>
+    <!-- CSS Bootstrap -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-light">
+
+<div class="container py-4">
+    <!-- Cabeçalho com Nome do Usuário e Botão de Logout -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Painel de Controle de Estoque</h1>
+        <div>
+            <span class="me-3 fs-5">Olá, <strong>{{ usuario }}</strong>!</span>
+            <a href="/logout" class="btn btn-outline-danger btn-sm">Sair</a>
+        </div>
+    </div>
+
+    <!-- Seção de Cadastro -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">Cadastrar Novo Produto</h5>
+        </div>
+        <div class="card-body">
+            <form id="formProduto" class="row g-3">
+                <div class="col-md-6">
+                    <input type="text" id="nomeProduto" class="form-control" placeholder="Nome do Produto" required>
+                </div>
+                <div class="col-md-4">
+                    <input type="number" id="qtdProduto" class="form-control" placeholder="Quantidade Inicial" min="1" required>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-success w-100">Cadastrar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Seção do Dashboard (Gráficos) -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">Entradas por Produto</div>
+                <div class="card-body">
+                    <canvas id="graficoEntradas"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">Saídas por Produto</div>
+                <div class="card-body">
+                    <canvas id="graficoSaidas"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Seção da Tabela de Produtos com Busca -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">Produtos em Estoque</h5>
+            <!-- Campo de Busca em Tempo Real -->
+            <div class="w-25">
+                <input type="text" id="campoBusca" class="form-control form-control-sm" placeholder="🔍 Pesquisar produto...">
+            </div>
+        </div>
+        <div class="card-body">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Nome</th>
+                        <th>Quantidade</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="tabelaProdutos">
+                    <!-- Preenchido via JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    let chartEntradas = null;
+    let chartSaidas = null;
+    let listaProdutos = []; // Guarda os produtos em memória para o filtro
+    const LIMITE_ESTOQUE_BAIXO = 5; // Limite para disparar o alerta visual
+
+    // 1. Carregar tabela de produtos
+    async function carregarProdutos() {
+        try {
+            const res = await fetch('/produtos');
+            listaProdutos = await res.json();
+            renderizarTabela(listaProdutos);
+        } catch (erro) {
+            console.error("Erro ao carregar produtos:", erro);
+        }
+    }
+
+    // 2. Renderizar tabela com alertas de estoque baixo
+    function renderizarTabela(produtos) {
+        const tbody = document.getElementById('tabelaProdutos');
+        tbody.innerHTML = '';
+
+        if (produtos.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">Nenhum produto encontrado.</td></tr>`;
+            return;
+        }
+
+        produtos.forEach(p => {
+            // Verifica se está com estoque baixo
+            const eBaixo = p.quantidade <= LIMITE_ESTOQUE_BAIXO;
+            
+            // Define classes de destaque visual
+            const classeLinha = eBaixo ? 'table-danger' : '';
+            const badgeQuantidade = eBaixo 
+                ? `<span class="badge bg-danger fs-6">${p.quantidade}</span>` 
+                : `<span class="badge bg-info text-dark fs-6">${p.quantidade}</span>`;
+            
+            const badgeStatus = eBaixo 
+                ? `<span class="badge bg-warning text-dark">⚠️ Estoque Baixo</span>` 
+                : `<span class="badge bg-success">OK</span>`;
+
+            tbody.innerHTML += `
+                <tr class="${classeLinha}">
+                    <td>${p.id}</td>
+                    <td><strong>${p.nome}</strong></td>
+                    <td>${badgeQuantidade}</td>
+                    <td>${badgeStatus}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-success bg-white" onclick="alterarEstoque(${p.id}, 'adicionar')">+ Entrada</button>
+                        <button class="btn btn-sm btn-outline-warning bg-white text-dark" onclick="alterarEstoque(${p.id}, 'baixar')">- Baixa</button>
+                        <button class="btn btn-sm btn-outline-danger bg-white" onclick="excluirProduto(${p.id})">Excluir</button>
+                    </td>
+                </tr>
+            `;
+        });
+    }
+
+    // 3. Filtro de Pesquisa Instantânea (evento ao digitar)
+    document.getElementById('campoBusca').addEventListener('input', (e) => {
+        const termo = e.target.value.toLowerCase();
+        const produtosFiltrados = listaProdutos.filter(p => 
+            p.nome.toLowerCase().includes(termo)
+        );
+        renderizarTabela(produtosFiltrados);
+    });
+
+    // 4. Carregar gráficos do Dashboard
+    async function carregarDashboard() {
+        try {
+            const res = await fetch('/api/dashboard');
+            const dados = await res.json();
+
+            const ctxEntradas = document.getElementById('graficoEntradas').getContext('2d');
+            const ctxSaidas = document.getElementById('graficoSaidas').getContext('2d');
+
+            if (chartEntradas) chartEntradas.destroy();
+            if (chartSaidas) chartSaidas.destroy();
+
+            chartEntradas = new Chart(ctxEntradas, {
+                type: 'bar',
+                data: {
+                    labels: dados.entradas.labels || [],
+                    datasets: [{
+                        label: 'Quantidade Entrada',
+                        data: dados.entradas.valores || [],
+                        backgroundColor: 'rgba(40, 167, 69, 0.7)',
+                        borderColor: 'rgba(40, 167, 69, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+
+            chartSaidas = new Chart(ctxSaidas, {
+                type: 'bar',
+                data: {
+                    labels: dados.saidas.labels || [],
+                    datasets: [{
+                        label: 'Quantidade Saída',
+                        data: dados.saidas.valores || [],
+                        backgroundColor: 'rgba(220, 53, 69, 0.7)',
+                        borderColor: 'rgba(220, 53, 69, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        } catch (erro) {
+            console.error("Erro ao carregar dashboard:", erro);
+        }
+    }
+
+    // 5. Cadastrar produto
+    document.getElementById('formProduto').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nome = document.getElementById('nomeProduto').value;
+        const quantidade = parseInt(document.getElementById('qtdProduto').value);
+
+        await fetch('/produtos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome, quantidade })
+        });
+
+        document.getElementById('formProduto').reset();
+        atualizarTudo();
+    });
+
+    // 6. Alterar estoque
+    async function alterarEstoque(id, acao) {
+        const qtd = prompt(`Digite a quantidade para ${acao}:`);
+        if (!qtd || isNaN(qtd) || qtd <= 0) return;
+
+        await fetch(`/produtos/${id}/${acao}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantidade: parseInt(qtd) })
+        });
+
+        atualizarTudo();
+    }
+
+    // 7. Excluir produto
+    async function excluirProduto(id) {
+        if (!confirm('Tem certeza que deseja excluir este produto?')) return;
+        
+        await fetch(`/produtos/${id}`, { method: 'DELETE' });
+        atualizarTudo();
+    }
+
+    function atualizarTudo() {
+        carregarProdutos();
+        carregarDashboard();
+        document.getElementById('campoBusca').value = ''; // Limpa a busca ao atualizar
+    }
+
+    // Carrega tudo ao abrir a página
+    atualizarTudo();
+</script>
+
+</body>
+</html>
